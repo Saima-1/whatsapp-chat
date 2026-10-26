@@ -38,7 +38,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(),
   db = firebase.firestore(),
   FV = firebase.firestore.FieldValue;
-const COL = ["#e17076", "#7bc862", "#6ec9cb", "#faa774", "#65aadd", "#a695e7"],
+const COL = ["#f97316", "#f59e0b", "#ef4444", "#14b8a6", "#0ea5e9", "#a855f7"],
   WP = [
     null,
     "#d7e8d0",
@@ -998,6 +998,8 @@ document.querySelectorAll("#rail [data-t]").forEach((b) => {
       chats: "ChatApp",
       calls: "Calls",
       status: "Status",
+      channels: "Channels",
+      games: "Games",
     }[tab];
     renderList();
   };
@@ -1877,11 +1879,10 @@ document.addEventListener(
 // Either paste it below, or let every user paste their own with the 🔑 button in the AI chat.
 const AI_KEY = "";
 const AI_MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
-  "gemini-3.8-flash",
-]; // Start with the fastest model; fall back only if it is unavailable.
+  "gemini-2.0-flash",
+]; // tried in this order if one is busy
 const BOT_SVG = `<svg viewBox='0 0 24 24' fill='none' stroke='#fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='8' width='16' height='11' rx='3'/><path d='M12 8V4.5'/><circle cx='12' cy='3.4' r='1'/><circle cx='9' cy='13' r='1.3' fill='#fff'/><circle cx='15' cy='13' r='1.3' fill='#fff'/><path d='M9.5 16.5h5M2 12v3M22 12v3'/></svg>`;
 const AI_SYS = `You are ChatApp AI, a friendly assistant inside ChatApp, a WhatsApp-style web chat app. Reply in the language the user writes in (English, Urdu or Roman Urdu), clearly and briefly. You can answer general questions, write or improve messages, translate and give ideas. App help: add contacts with ➕ (email or phone); groups via ➕ > New group (admin can add/remove members, everyone can leave); Status tab for status with privacy and reactions; voice and video calls from the ⋮ menu in a chat; voice notes with the 🎤 button; photo, video and polls with 📎; the ⌄ button on a message to react, reply, edit, delete or translate; profile, theme and account settings via your avatar at the bottom left.`;
 const aiKey = () => {
@@ -1892,12 +1893,43 @@ const aiKey = () => {
   }
 };
 let AIH = [];
+// Ask Google which models this key can use, so a renamed or retired model never breaks the AI
+let MODELS = null;
+async function getModels(key) {
+  if (MODELS) return MODELS;
+  let found = [];
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key=${key}`,
+    );
+    const j = await r.json();
+    found = (j.models || [])
+      .filter(
+        (m) =>
+          (m.supportedGenerationMethods || []).includes("generateContent") &&
+          /flash/.test(m.name) &&
+          !/image|tts|live|audio|embed|vision|thinking|exp|preview/.test(
+            m.name,
+          ),
+      )
+      .map((m) => m.name.replace("models/", ""))
+      .sort(
+        (a, b) =>
+          a.includes("lite") - b.includes("lite") ||
+          b.localeCompare(a, undefined, { numeric: true }),
+      );
+  } catch (e) {}
+  MODELS = (found.length ? found : AI_MODELS).slice(0, 4);
+  return MODELS;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function askAI(history, system, onText) {
   const key = aiKey();
   let h = history.slice(-16);
   while (h.length && !h[0].me) h.shift(); // Gemini needs the first message to come from the user
   let lastErr;
-  for (const model of AI_MODELS) {
+  for (const model of await getModels(key)) {
+    for (let t = 0; t < 2; t++) {
       try {
         const body = {
           systemInstruction: { parts: [{ text: system }] },
@@ -1928,6 +1960,8 @@ async function askAI(history, system, onText) {
             /demand|overload|busy/i.test(msg)
           ) {
             lastErr = new Error(msg);
+            if (t === 0 && r.status !== 404) await sleep(1200);
+            else break;
             continue;
           }
           throw new Error(msg);
@@ -1966,11 +2000,8 @@ async function askAI(history, system, onText) {
           throw e;
         lastErr = e;
       }
+    }
   }
-  if (/demand|overload|busy/i.test(lastErr?.message || ""))
-    throw new Error(
-      "Gemini is busy right now. Please wait 20–30 seconds and try again.",
-    );
   throw new Error(
     "AI is not available right now: " +
       (lastErr ? lastErr.message : "unknown error"),
@@ -2211,3 +2242,445 @@ $("#msgs").addEventListener("click", (e) => {
     draw();
   }
 });
+
+/* ================= 17. CHANNELS (news / tips) and GAMES ================= */
+// Put the email(s) of the people who may post in channels here, e.g. ["you@gmail.com"]. The same email must be in the Firestore rules.
+const CH_ADMINS = [];
+const CH = [
+  {
+    id: "cooking",
+    name: "Cooking",
+    icon: "🍳",
+    color: "#f59e0b",
+    desc: "Recipes, kitchen tips and food ideas",
+    feed: "https://www.budgetbytes.com/feed/",
+    tips: [
+      "Salt your pasta water generously. It should taste like the sea.",
+      "Let meat rest 5-10 minutes after cooking so the juices stay inside.",
+    ],
+  },
+  {
+    id: "stitching",
+    name: "Stitching",
+    icon: "🧵",
+    color: "#ec4899",
+    desc: "Sewing, embroidery and tailoring tips",
+    feed: "",
+    tips: [
+      "Press every seam before sewing the next step. It gives a professional finish.",
+      "Change your needle after about 8 hours of sewing. A dull needle skips stitches.",
+    ],
+  },
+  {
+    id: "webdev",
+    name: "Web Development",
+    icon: "💻",
+    color: "#3b82f6",
+    desc: "HTML, CSS, JavaScript and web news",
+    feed: "https://dev.to/feed/tag/webdev",
+    tips: [
+      "Use semantic HTML (header, nav, main, footer). It helps accessibility and SEO.",
+      "Set box-sizing: border-box on all elements to make layouts predictable.",
+    ],
+  },
+  {
+    id: "news",
+    name: "Breaking News",
+    icon: "📰",
+    color: "#ef4444",
+    desc: "Top headlines from around the world",
+    feed: "https://feeds.bbci.co.uk/news/rss.xml",
+    tips: [],
+  },
+  {
+    id: "health",
+    name: "Health & Fitness",
+    icon: "💪",
+    color: "#10b981",
+    desc: "Health news and wellbeing tips",
+    feed: "https://feeds.bbci.co.uk/news/health/rss.xml",
+    tips: [
+      "Drink water regularly through the day, not only when you feel thirsty.",
+    ],
+  },
+];
+const GAMES = [
+  {
+    id: "ttt",
+    name: "Tic-Tac-Toe",
+    icon: "❌",
+    desc: "Play against the computer",
+  },
+  {
+    id: "mem",
+    name: "Memory Match",
+    icon: "🧠",
+    desc: "Find all the matching pairs",
+  },
+  { id: "snake", name: "Snake", icon: "🐍", desc: "Eat, grow and don't crash" },
+];
+const isAdm = () =>
+  CH_ADMINS.map((x) => x.toLowerCase()).includes(
+    (me.email || "").toLowerCase(),
+  );
+const strip = (h) =>
+  new DOMParser().parseFromString(h, "text/html").body.textContent.trim();
+const hideMain = () => {
+  $("#empty").style.display =
+    $("#chat").style.display =
+    $("#aip").style.display =
+    $("#chp").style.display =
+    $("#gmp").style.display =
+      "none";
+};
+const closeOvp = () => {
+  $("#chp").style.display = $("#gmp").style.display = "none";
+  $("#empty").style.display = "flex";
+  document.body.classList.remove("chat");
+  gOff();
+  if (chUn) chUn();
+  curCH = null;
+};
+$("#chb").onclick = $("#gb2").onclick = closeOvp;
+const _rl3 = renderList;
+renderList = () => {
+  if (tab === "channels") return renderChannels();
+  if (tab === "games") return renderGames();
+  _rl3();
+};
+const _oc3 = openChat;
+openChat = (id) => {
+  $("#chp").style.display = $("#gmp").style.display = "none";
+  gOff();
+  _oc3(id);
+};
+const _oa = openAI;
+openAI = () => {
+  $("#chp").style.display = $("#gmp").style.display = "none";
+  _oa();
+};
+$("#rai").onclick = $("#wl-ai").onclick = () => openAI();
+
+/* ----- Channels ----- */
+let curCH = null,
+  chUn = null,
+  chPosts = [];
+const FEEDS = {};
+const follows = () => my.follows || [];
+const toggleFollow = (id) =>
+  db
+    .collection("users")
+    .doc(me.uid)
+    .update({
+      follows: follows().includes(id) ? FV.arrayRemove(id) : FV.arrayUnion(id),
+    })
+    .then(() => toast(follows().includes(id) ? "Following" : "Unfollowed"));
+function renderChannels() {
+  const row = (c) =>
+    `<div class="row" data-ch="${c.id}"><div class="av" style="background:${c.color};width:46px;height:46px;font-size:22px">${c.icon}</div><div class="m"><div class="n">${c.name}</div><div class="s">${c.desc}</div></div><button class="btn s ${follows().includes(c.id) ? "g" : ""}" style="width:auto" data-fl="${c.id}">${follows().includes(c.id) ? "Following" : "Follow"}</button></div>`;
+  const mine = CH.filter((c) => follows().includes(c.id)),
+    rest = CH.filter((c) => !follows().includes(c.id));
+  $("#list").innerHTML =
+    (mine.length
+      ? '<p class="sub" style="padding:12px 16px">Following</p>' +
+        mine.map(row).join("")
+      : "") +
+    '<p class="sub" style="padding:12px 16px">Find channels</p>' +
+    rest.map(row).join("");
+  if (curCH)
+    $("#chf").textContent = follows().includes(curCH.id)
+      ? "Following"
+      : "Follow";
+}
+async function openChannel(id) {
+  const c = CH.find((x) => x.id === id);
+  hideMain();
+  curCH = c;
+  $("#chp").style.display = "flex";
+  document.body.classList.add("chat");
+  $("#chi").style.background = c.color;
+  $("#chi").textContent = c.icon;
+  $("#chn").textContent = c.name;
+  $("#chd").textContent = c.desc;
+  $("#chf").textContent = follows().includes(id) ? "Following" : "Follow";
+  $("#chbar").style.display = isAdm() ? "flex" : "none";
+  chPosts = [];
+  if (chUn) chUn();
+  chUn = db
+    .collection("channelPosts")
+    .where("ch", "==", id)
+    .onSnapshot(
+      (q) => {
+        chPosts = q.docs.map((d) => ({ id: d.id, ...d.data(), t: "post" }));
+        drawCH();
+      },
+      (e) => toast(e.message),
+    );
+  drawCH();
+  if (c.feed && !FEEDS[id]) {
+    FEEDS[id] = [];
+    try {
+      const j = await (
+        await fetch(
+          "https://api.rss2json.com/v1/api.json?rss_url=" +
+            encodeURIComponent(c.feed),
+        )
+      ).json();
+      FEEDS[id] = (j.items || []).map((i) => ({
+        t: "feed",
+        title: i.title,
+        text: strip(i.description || "").slice(0, 220),
+        link: i.link,
+        img: i.thumbnail || i.enclosure?.link || "",
+        ts: Date.parse((i.pubDate || "").replace(" ", "T") + "Z") || 2,
+        src: j.feed?.title || "News feed",
+      }));
+    } catch (e) {
+      FEEDS[id] = [];
+    }
+    if (curCH === c) drawCH();
+  }
+}
+function drawCH() {
+  const c = curCH;
+  if (!c) return;
+  const items = [
+    ...c.tips.map((x) => ({ t: "tip", text: x, ts: 1 })),
+    ...(FEEDS[c.id] || []),
+    ...chPosts,
+  ].sort((a, b) => b.ts - a.ts);
+  $("#chm").innerHTML = items.length
+    ? items
+        .map(
+          (p) =>
+            `<div class="post">${p.img ? `<img src="${esc(p.img)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ""}${p.title ? `<b>${esc(p.title)}</b>` : ""}<div>${esc(p.text)}</div>${p.link && /^https?:/.test(p.link) ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">Read more ↗</a>` : ""}<small>${p.t === "tip" ? "Tip" : p.t === "feed" ? esc(p.src) : esc(p.byName || "Admin")}${p.ts > 2 ? " · " + dl(p.ts) + ", " + tm(p.ts) : ""}${isAdm() && p.t === "post" ? ` <button data-dp="${p.id}">🗑</button>` : ""}</small></div>`,
+        )
+        .join("")
+    : '<p class="emp">No posts yet.</p>';
+}
+$("#chf").onclick = () => curCH && toggleFollow(curCH.id);
+$("#chs").onclick = async () => {
+  const text = $("#chx").value.trim();
+  if (!text) return;
+  try {
+    await db
+      .collection("channelPosts")
+      .add({ ch: curCH.id, text, by: me.uid, byName: my.name, ts: Date.now() });
+    $("#chx").value = "";
+  } catch (e) {
+    toast("Could not post: " + e.message);
+  }
+};
+$("#chx").onkeydown = (e) => {
+  if (e.key === "Enter") $("#chs").click();
+};
+$("#chm").onclick = (e) => {
+  const d = e.target.closest("[data-dp]");
+  if (d && confirm("Delete this post?"))
+    db.collection("channelPosts").doc(d.dataset.dp).delete();
+};
+
+/* ----- Games ----- */
+let gOff = () => {};
+function renderGames() {
+  $("#list").innerHTML =
+    '<p class="sub" style="padding:12px 16px">Free time? Play a game 🎮</p>' +
+    GAMES.map(
+      (g) =>
+        `<div class="row" data-g="${g.id}"><div class="av" style="background:#6366f1;width:46px;height:46px;font-size:22px">${g.icon}</div><div class="m"><div class="n">${g.name}</div><div class="s">${g.desc}</div></div></div>`,
+    ).join("");
+}
+function openGame(id) {
+  gOff();
+  gOff = () => {};
+  hideMain();
+  $("#gmp").style.display = "flex";
+  document.body.classList.add("chat");
+  $("#gt").textContent = GAMES.find((g) => g.id === id).name;
+  ({ ttt: gameTTT, mem: gameMem, snake: gameSnake })[id]($("#gbody"));
+  const r = $("#gr");
+  if (r) r.onclick = () => openGame(id);
+}
+function gameTTT(b) {
+  const bd = Array(9).fill(""),
+    L = [
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+      [0, 3, 6],
+      [1, 4, 7],
+      [2, 5, 8],
+      [0, 4, 8],
+      [2, 4, 6],
+    ];
+  let over = false;
+  b.innerHTML = `<div class="gm"><p id="gs" class="sub">Your turn (X)</p><div class="ttt">${bd.map((_, i) => `<button data-i="${i}"></button>`).join("")}</div><button class="btn s" id="gr" style="width:auto">Restart</button></div>`;
+  const win = (p) => L.some((l) => l.every((i) => bd[i] === p));
+  const end = () => {
+    if (win("X")) {
+      over = true;
+      $("#gs").textContent = "You win! 🎉";
+    } else if (win("O")) {
+      over = true;
+      $("#gs").textContent = "Computer wins 🤖";
+    } else if (!bd.includes("")) {
+      over = true;
+      $("#gs").textContent = "It's a draw";
+    }
+    return over;
+  };
+  const need = (p) =>
+    L.map((l) =>
+      l.filter((i) => bd[i] === p).length === 2 &&
+      l.filter((i) => bd[i] === "").length === 1
+        ? l.find((i) => bd[i] === "")
+        : -1,
+    ).find((x) => x >= 0);
+  const cpu = () => {
+    let m = need("O");
+    if (m === undefined) m = need("X");
+    if (m === undefined && bd[4] === "") m = 4;
+    if (m === undefined) {
+      const e = bd.map((v, i) => (v === "" ? i : -1)).filter((i) => i >= 0);
+      m = e[Math.floor(Math.random() * e.length)];
+    }
+    bd[m] = "O";
+  };
+  b.querySelector(".ttt").onclick = (e) => {
+    const i = e.target.dataset.i;
+    if (over || i === undefined || bd[i]) return;
+    bd[i] = "X";
+    if (!end()) {
+      cpu();
+      end();
+    }
+    b.querySelectorAll(".ttt button").forEach(
+      (x, k) => (x.textContent = bd[k]),
+    );
+    if (!over) $("#gs").textContent = "Your turn (X)";
+  };
+}
+function gameMem(b) {
+  const E = ["🍎", "🚀", "🎈", "🐱", "⚽", "🌸"],
+    cards = [...E, ...E].sort(() => Math.random() - 0.5);
+  let open = [],
+    moves = 0,
+    found = 0,
+    lock = false;
+  b.innerHTML = `<div class="gm"><p class="sub">Moves: <b id="mv">0</b></p><div class="mem">${cards.map((c, i) => `<button data-i="${i}">?</button>`).join("")}</div><p id="gs" class="sub"></p><button class="btn s" id="gr" style="width:auto">Restart</button></div>`;
+  const bt = b.querySelectorAll(".mem button");
+  b.querySelector(".mem").onclick = (e) => {
+    const i = +e.target.dataset.i;
+    if (lock || isNaN(i) || open.includes(i) || bt[i].classList.contains("ok"))
+      return;
+    bt[i].textContent = cards[i];
+    open.push(i);
+    if (open.length < 2) return;
+    $("#mv").textContent = ++moves;
+    const [x, y] = open;
+    if (cards[x] === cards[y]) {
+      bt[x].classList.add("ok");
+      bt[y].classList.add("ok");
+      open = [];
+      if (++found === 6)
+        $("#gs").textContent = "You won in " + moves + " moves! 🎉";
+    } else {
+      lock = true;
+      setTimeout(() => {
+        bt[x].textContent = bt[y].textContent = "?";
+        open = [];
+        lock = false;
+      }, 700);
+    }
+  };
+}
+function gameSnake(b) {
+  b.innerHTML = `<div class="gm"><p class="sub">Score: <b id="sc">0</b> · Arrow keys / WASD or the buttons</p><canvas id="sn" width="300" height="300"></canvas><div class="dpad"><button data-d="U">▲</button><div><button data-d="L">◀</button><button data-d="D">▼</button><button data-d="R">▶</button></div></div><button class="btn s" id="gr" style="width:auto">Restart</button></div>`;
+  const cx = $("#sn").getContext("2d"),
+    N = 15,
+    S = 20,
+    V = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+  let sn = [
+      [7, 7],
+      [6, 7],
+      [5, 7],
+    ],
+    dir = [1, 0],
+    nd = [1, 0],
+    food = [10, 7],
+    score = 0;
+  const turn = (d) => {
+    const v = V[d];
+    if (v && (v[0] !== -dir[0] || v[1] !== -dir[1])) nd = v;
+  };
+  const kd = (e) => {
+    const d = {
+      ArrowUp: "U",
+      w: "U",
+      ArrowDown: "D",
+      s: "D",
+      ArrowLeft: "L",
+      a: "L",
+      ArrowRight: "R",
+      d: "R",
+    }[e.key];
+    if (d) {
+      e.preventDefault();
+      turn(d);
+    }
+  };
+  document.addEventListener("keydown", kd);
+  b.querySelector(".dpad").onclick = (e) => turn(e.target.dataset.d);
+  const t = setInterval(() => {
+    dir = nd;
+    const h = [sn[0][0] + dir[0], sn[0][1] + dir[1]];
+    if (
+      h[0] < 0 ||
+      h[1] < 0 ||
+      h[0] >= N ||
+      h[1] >= N ||
+      sn.some((s) => s[0] === h[0] && s[1] === h[1])
+    ) {
+      clearInterval(t);
+      cx.fillStyle = "#fff";
+      cx.font = "24px sans-serif";
+      cx.fillText("Game over", 95, 150);
+      return;
+    }
+    sn.unshift(h);
+    if (h[0] === food[0] && h[1] === food[1]) {
+      $("#sc").textContent = ++score;
+      do {
+        food = [Math.floor(Math.random() * N), Math.floor(Math.random() * N)];
+      } while (sn.some((s) => s[0] === food[0] && s[1] === food[1]));
+    } else sn.pop();
+    cx.fillStyle = "#0b141a";
+    cx.fillRect(0, 0, 300, 300);
+    cx.fillStyle = "#ef4444";
+    cx.fillRect(food[0] * S + 2, food[1] * S + 2, S - 4, S - 4);
+    cx.fillStyle = "#25d366";
+    sn.forEach((s) => cx.fillRect(s[0] * S + 1, s[1] * S + 1, S - 2, S - 2));
+  }, 130);
+  gOff = () => {
+    clearInterval(t);
+    document.removeEventListener("keydown", kd);
+  };
+}
+$("#list").addEventListener("click", (e) => {
+  const f = e.target.closest("[data-fl]");
+  if (f) return toggleFollow(f.dataset.fl);
+  const r = e.target.closest("[data-ch]");
+  if (r) return openChannel(r.dataset.ch);
+  const g = e.target.closest("[data-g]");
+  if (g) openGame(g.dataset.g);
+});
+
+/* ===== mic / send icon switch (used by the new icon set in style.css) ===== */
+const sbSync = () =>
+  ($("#sb").dataset.s = $("#sb").textContent.trim() === "🎤" ? "mic" : "send");
+new MutationObserver(sbSync).observe($("#sb"), {
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+sbSync();
