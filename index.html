@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>ChatApp</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2300a884'/%3E%3Cpath d='M14 18a6 6 0 0 1 6-6h24a6 6 0 0 1 6 6v18a6 6 0 0 1-6 6H30l-10 9v-9a6 6 0 0 1-6-6z' fill='%23fff'/%3E%3Ccircle cx='24' cy='27' r='2.8' fill='%2300a884'/%3E%3Ccircle cx='32' cy='27' r='2.8' fill='%2300a884'/%3E%3Ccircle cx='40' cy='27' r='2.8' fill='%2300a884'/%3E%3C/svg%3E"
+    />
+    <meta name="theme-color" content="#00a884" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="auth">
+      <div class="card">
+        <div class="auth-mark" aria-hidden="true"></div>
+        <p class="auth-kicker">YOUR SPACE, YOUR PEOPLE</p>
+        <h2 id="ah">Welcome back</h2>
+        <p class="sub" id="ap">Log in with your email and password.</p>
+        <label class="auth-field"><span>Your name</span><input id="an" placeholder=" " style="display: none" /></label>
+        <label class="auth-field"><span>Phone number</span><input id="aph" placeholder=" " style="display: none" inputmode="tel" /></label>
+        <label class="auth-field"><span>Email address</span><input id="ae" type="email" placeholder=" " autocomplete="email" /></label>
+        <label class="auth-field"><span>Password (6+ characters)</span><input
+          id="apw"
+          type="password"
+          placeholder=" "
+          autocomplete="current-password"
+        /></label>
+        <div class="err" id="aerr"></div>
+        <button class="btn" id="abtn">Log in</button
+        ><button class="link" id="asw">Create a new account</button>
+      </div>
+    </div>
+
+    <div id="app">
+      <nav id="rail">
+        <button data-t="chats" class="on" title="Chats">
+          💬<span id="rbc" class="rb"></span>
+        </button>
+        <button data-t="calls" title="Calls">📞</button>
+        <button data-t="status" title="Status">⭕</button>
+        <button id="rai" title="ChatApp AI">
+          <span class="bot" style="width: 32px; height: 32px"
+            ><svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#fff"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="4" y="8" width="16" height="11" rx="3" />
+              <path d="M12 8V4.5" />
+              <circle cx="12" cy="3.4" r="1" />
+              <circle cx="9" cy="13" r="1.3" fill="#fff" />
+              <circle cx="15" cy="13" r="1.3" fill="#fff" />
+              <path d="M9.5 16.5h5M2 12v3M22 12v3" /></svg
+          ></span>
+        </button>
+        <span class="sp"></span>
+        <button id="thm" title="Dark / Light">🌓</button>
+        <button id="me" title="Profile & settings"></button>
+      </nav>
+      <aside id="side">
+        <div class="top">
+          <b id="ttl">ChatApp</b
+          ><button class="ic" id="add" title="New contact">➕</button>
+        </div>
+
+        <div style="padding: 8px 12px">
+          <input id="q" placeholder="Search or start a new chat" />
+        </div>
+        <div id="pm">
+          <button data-k="c">👤 New contact</button
+          ><button data-k="g">👥 New group</button>
+        </div>
+        <div id="chips">
+          <button class="on" data-f="all">All</button
+          ><button data-f="unread">Unread</button
+          ><button data-f="fav">Favorites</button>
+        </div>
+        <div id="list"></div>
+        <button id="fab" title="New status">✎</button>
+      </aside>
+      <section id="main">
+        <div id="empty">
+          <div class="wc">
+            <div style="font-size: 64px">💬</div>
+            <h2>Chat, call and share status</h2>
+            <p>
+              Add a contact by email or phone number, then send messages, voice
+              notes, photos and make voice or video calls.
+            </p>
+            <button class="btn" id="wl-add" style="margin-top: 18px">
+              Add a contact
+            </button>
+          </div>
+          <div class="wa">
+            <button id="wl-ai">
+              <i class="bot"
+                ><svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#fff"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="4" y="8" width="16" height="11" rx="3" />
+                  <path d="M12 8V4.5" />
+                  <circle cx="12" cy="3.4" r="1" />
+                  <circle cx="9" cy="13" r="1.3" fill="#fff" />
+                  <circle cx="15" cy="13" r="1.3" fill="#fff" />
+                  <path d="M9.5 16.5h5M2 12v3M22 12v3" /></svg></i
+              >Ask AI</button
+            ><button id="wl-inv"><i>✉️</i>Invite a friend</button
+            ><button id="wl-call"><i>📹</i>New call</button
+            ><button id="wl-st"><i>⭕</i>Post status</button
+            ><button id="wl-set"><i>⚙️</i>Settings</button>
+          </div>
+        </div>
+        <div id="aip">
+          <div class="top">
+            <button class="ic back" id="aib">←</button>
+            <div class="av bot" style="width: 40px; height: 40px">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#fff"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="4" y="8" width="16" height="11" rx="3" />
+                <path d="M12 8V4.5" />
+                <circle cx="12" cy="3.4" r="1" />
+                <circle cx="9" cy="13" r="1.3" fill="#fff" />
+                <circle cx="15" cy="13" r="1.3" fill="#fff" />
+                <path d="M9.5 16.5h5M2 12v3M22 12v3" />
+              </svg>
+            </div>
+            <div style="flex: 1">
+              <b>ChatApp AI</b
+              ><small style="display: block; color: var(--sb)"
+                >Your assistant · v3</small
+              >
+            </div>
+            <button class="ic" id="aik" title="AI key">🔑</button
+            ><button class="ic" id="aic" title="Clear conversation">🗑</button>
+          </div>
+          <div id="aim"></div>
+          <div id="aibar">
+            <input
+              id="aii"
+              placeholder="Ask ChatApp AI anything"
+              autocomplete="off"
+            /><button class="send" id="ais">➤</button>
+          </div>
+        </div>
+        <div id="chat">
+          <div class="top">
+            <button class="ic back" id="bk">←</button>
+            <div id="hd">
+              <span id="cav"></span>
+              <div style="min-width: 0">
+                <b id="cn" style="display: block; font-size: 16px"></b
+                ><small id="cs2" style="color: var(--sb)"></small>
+              </div>
+            </div>
+            <button class="ic" id="more" title="More">⋮</button>
+          </div>
+          <div id="hm">
+            <button id="fv">☆ Add to favorites</button
+            ><button id="vc">📹 Video call</button
+            ><button id="ac">📞 Voice call</button
+            ><button id="tr">🌐 Translate to…</button
+            ><button id="ci">ℹ️ Info</button
+            ><button id="sm">Summarize chat with AI</button
+            ><button id="dc">🗑 Delete chat</button
+            ><button id="ct">🎨 Chat theme</button>
+          </div>
+          <div id="msgs"></div>
+          <div id="ed"><span id="edt"></span><button id="edx">✕</button></div>
+          <div id="emo"></div>
+          <div id="bar">
+            <button class="ic" id="eb">😊</button
+            ><button class="ic" id="ab">📎</button>
+            <div id="att">
+              <button data-a="img">🖼 Photo</button
+              ><button data-a="video">🎬 Video</button
+              ><button data-a="poll">📊 Poll</button>
+            </div>
+            <input type="file" id="imf" accept="image/*" hidden />
+            <input id="mi" placeholder="Type a message" autocomplete="off" />
+            <div id="rec">
+              <span class="rd2"></span><span id="rt">0:00</span
+              ><span style="flex: 1"></span
+              ><button class="ic" id="rc">🗑</button>
+            </div>
+            <button class="send" id="sb">🎤</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="sv">
+      <div class="pb"><div id="pbi"></div></div>
+      <div id="svn"></div>
+      <button id="svx">✕</button
+      ><button id="svd" title="Delete status">🗑</button><img id="svi" alt="" />
+      <div id="svt"></div>
+      <div id="svb"></div>
+    </div>
+    <input type="file" id="vdf" accept="video/*" hidden />
+    <div id="menu"></div>
+    <div id="ov"></div>
+    <div id="call">
+      <video id="rv" autoplay playsinline></video
+      ><video id="lv" autoplay muted playsinline></video>
+      <div class="i" style="margin-top: 30px">
+        <div
+          id="cav2"
+          style="display: flex; justify-content: center; margin-bottom: 12px"
+        ></div>
+        <h2 id="cnm" style="font-weight: 400"></h2>
+        <p id="cst" style="opacity: 0.8"></p>
+      </div>
+      <div class="cb">
+        <button id="mt">🎙</button><button id="cm">📷</button
+        ><button class="end" id="ce">📞</button>
+      </div>
+    </div>
+    <div id="inc">
+      <div id="incn"></div>
+      <button id="acc" style="background: #25d366">📞</button
+      ><button id="dec" style="background: #e53935">✕</button>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <!-- All logic is in app.js -->
+    <script src="app.js"></script>
+  </body>
+</html>
