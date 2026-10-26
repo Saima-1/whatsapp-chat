@@ -38,7 +38,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(),
   db = firebase.firestore(),
   FV = firebase.firestore.FieldValue;
-const COL = ["#f97316", "#f59e0b", "#ef4444", "#14b8a6", "#0ea5e9", "#a855f7"],
+const COL = ["#8b6bd6", "#f59e0b", "#ef4444", "#14b8a6", "#0ea5e9", "#a855f7"],
   WP = [
     null,
     "#d7e8d0",
@@ -162,11 +162,19 @@ function mode(s) {
   $("#aerr").textContent = "";
 }
 $("#asw").onclick = () => mode(!signup);
-$("#abtn").onclick = async () => {
-  const e = $("#ae").value.trim(),
+async function submitAuth() {
+  const btn = $("#abtn");
+  if (btn.disabled) return;
+  const e = $("#ae").value.trim().toLowerCase(),
     p = $("#apw").value,
     er = $("#aerr");
   er.textContent = "";
+  if (!e || !p) {
+    er.textContent = "Enter your email and password.";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = signup ? "Creating account…" : "Logging in…";
   try {
     if (signup) {
       const n = $("#an").value.trim();
@@ -175,9 +183,29 @@ $("#abtn").onclick = async () => {
       await auth.createUserWithEmailAndPassword(e, p);
     } else await auth.signInWithEmailAndPassword(e, p);
   } catch (x) {
-    er.textContent = x.message.replace("Firebase: ", "");
+    const messages = {
+      "auth/invalid-email": "This email address is not valid.",
+      "auth/user-not-found": "No account found for this email. Create an account first.",
+      "auth/wrong-password": "Incorrect password. Check it and try again.",
+      "auth/invalid-credential": "Email or password is incorrect.",
+      "auth/too-many-requests": "Too many attempts. Wait a while and try again.",
+      "auth/network-request-failed": "Network error. Check your internet connection and try again.",
+      "auth/email-already-in-use": "This email already has an account. Log in instead.",
+      "auth/weak-password": "Choose a stronger password with at least 6 characters.",
+      "auth/operation-not-allowed": "Email and password sign-in is disabled in Firebase Authentication settings.",
+    };
+    er.textContent = messages[x.code] || (x.message || "Sign-in failed.").replace("Firebase: ", "");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = signup ? "Sign up" : "Log in";
   }
-};
+}
+$("#abtn").onclick = submitAuth;
+["#ae", "#apw", "#an", "#aph"].forEach((selector) =>
+  $(selector).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitAuth();
+  }),
+);
 auth.onAuthStateChanged(async (u) => {
   if (!u) {
     $("#auth").style.display = "grid";
@@ -469,6 +497,12 @@ function draw() {
     }
     let b;
     if (m.del) b = '<i class="del">🚫 This message was deleted</i>';
+    else if (m.type === "call") {
+      const mins = Math.floor((m.dur || 0) / 60),
+        secs = String((m.dur || 0) % 60).padStart(2, "0"),
+        detail = m.dur ? `${mins}:${secs}` : "Missed call";
+      b = `<div class="call-msg"><b>${m.video ? "📹 Video call" : "📞 Voice call"}</b><small>${mine ? "Outgoing" : "Incoming"} · ${detail}</small></div>`;
+    }
     else if (m.type === "image")
       b = `<img class="pic" data-full src="${m.img}">`;
     else if (m.type === "voice")
@@ -509,7 +543,9 @@ function draw() {
   if (atEnd || MS.length < 2) M.scrollTop = M.scrollHeight;
 }
 const prev = (m) =>
-  m.type === "image"
+  m.type === "call"
+    ? `${m.video ? "Video" : "Voice"} call${m.dur ? ` · ${Math.floor(m.dur / 60)}:${String(m.dur % 60).padStart(2, "0")}` : " · Missed call"}`
+    : m.type === "image"
     ? "📷 Photo"
     : m.type === "voice"
       ? "🎤 Voice message"
@@ -780,6 +816,7 @@ const ICE = {
 };
 let pc,
   callRef,
+  callMeta,
   lstream,
   pc2 = [],
   cu = [],
@@ -871,7 +908,7 @@ function mkpc(ref) {
     ref.onSnapshot((d) => {
       const x = d.data();
       if (!x || !pc) return;
-      if (x.status === "ended") endCall(1);
+      if (x.status === "ended") endCall(1, x);
       if (x.answer && x.from === me.uid && !pc.currentRemoteDescription)
         pc.setRemoteDescription(x.answer).then(flush);
     }),
@@ -883,6 +920,7 @@ async function startCall(v) {
   lstream = await media(v);
   if (!lstream) return;
   callRef = db.collection("calls").doc();
+  callMeta = { id: callRef.id, from: me.uid, to: cur, video: v, ts: Date.now() };
   callUI(u, v, "Calling…");
   mkpc(callRef);
   const o = await pc.createOffer();
@@ -906,6 +944,7 @@ async function incoming(id, c) {
     U[c.from] = { ...d.data(), id: c.from };
   }
   callRef = db.collection("calls").doc(id);
+  callMeta = { id, from: c.from, to: me.uid, video: !!c.video, ts: c.ts || Date.now() };
   inc = c;
   $("#incn").textContent =
     U[c.from].name + " — " + (c.video ? "video" : "voice") + " call";
@@ -928,20 +967,43 @@ $("#acc").onclick = async () => {
 };
 $("#dec").onclick = () => {
   $("#inc").style.display = "none";
-  callRef && callRef.update({ status: "ended" });
+  if (callRef) {
+    callRef.update({ status: "ended", dur: 0 }).catch(() => {});
+    saveCallMessage(callMeta, 0);
+  }
   callRef = null;
+  callMeta = null;
 };
-function endCall(remote) {
+function saveCallMessage(meta, duration) {
+  if (!meta || !meta.id || !meta.from || !meta.to) return;
+  const chatId = [meta.from, meta.to].sort().join("_"),
+    msg = {
+      from: meta.from,
+      ts: meta.ts,
+      type: "call",
+      video: !!meta.video,
+      dur: Math.max(0, duration || 0),
+    },
+    ref = db.collection("chats").doc(chatId);
+  ref.set({ members: [meta.from, meta.to], last: prev(msg), lastTs: msg.ts, lastFrom: msg.from }, { merge: true })
+    .then(() => ref.collection("messages").doc("call_" + meta.id).set(msg, { merge: true }))
+    .catch((err) => toast("Could not save call in chat: " + err.message));
+}
+function endCall(remote, details) {
   if (!pc && !lstream) return;
   clearTimeout(nt);
   clearInterval(tt);
+  const duration = details && Number.isFinite(details.dur)
+    ? details.dur
+    : conAt ? Math.round((Date.now() - conAt) / 1000) : 0;
   if (!remote && callRef)
     callRef
       .update({
         status: "ended",
-        dur: conAt ? Math.round((Date.now() - conAt) / 1000) : 0,
+        dur: duration,
       })
       .catch(() => {});
+  saveCallMessage(callMeta, duration);
   conAt = 0;
   if (pc) pc.close();
   pc = null;
@@ -950,6 +1012,7 @@ function endCall(remote) {
   cu.forEach((f) => f());
   cu = [];
   callRef = null;
+  callMeta = null;
   $("#call").style.display = "none";
   $("#cav2").style.display = "flex";
   $("#rv").srcObject = null;
@@ -972,7 +1035,7 @@ let tab = "chats",
   ST = [],
   CL = { a: [], b: [] },
   conAt = 0;
-const SC = ["#00a884", "#e17076", "#65aadd", "#a695e7", "#faa774", "#202c33"];
+const SC = ["#8b6bd6", "#e17076", "#65aadd", "#a695e7", "#faa774", "#202c33"];
 const fmt = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 
 // Decides which list to draw depending on the selected tab
@@ -1053,7 +1116,10 @@ function startExtra() {
 }
 
 /* ---------- STATUS ---------- */
-const visible = (s) => s.uid === me.uid || !s.vis || s.vis.includes(me.uid);
+const visible = (s) =>
+  s.uid === me.uid ||
+  (!(my.blocked || []).includes(s.uid) && !(U[s.uid]?.blocked || []).includes(me.uid) &&
+    (!s.vis || s.vis.includes(me.uid)));
 const statusOf = (id) => ST.filter((s) => s.uid === id && visible(s));
 const seenAt = (id) => {
   try {
@@ -1542,6 +1608,8 @@ hdr = () => {
     ? "★ Remove from favorites"
     : "☆ Add to favorites";
   $("#vc").style.display = $("#ac").style.display = g ? "none" : "";
+  const blockButton = $("#bl");
+  if (blockButton) blockButton.textContent = (my.blocked || []).includes(cur) ? "✅ Unblock user" : "🚫 Block user";
 };
 const oldHd = $("#hd").onclick;
 $("#hd").onclick = () => (isG(cur) ? groupInfo() : oldHd());
@@ -1590,6 +1658,19 @@ $("#pm").onclick = (e) => {
   if (b) b.dataset.k === "c" ? addContact() : newGroup();
 };
 // ⋮ button: slide-in menu with all chat options
+$("#hm").insertAdjacentHTML("beforeend", '<button id="bl">🚫 Block user</button>');
+$("#bl").onclick = async (e) => {
+  e.stopPropagation();
+  if (isG(cur)) return toast("Block is available in direct chats");
+  const blocked = (my.blocked || []).includes(cur);
+  try {
+    await db.collection("users").doc(me.uid).update({
+      blocked: blocked ? FV.arrayRemove(cur) : FV.arrayUnion(cur),
+    });
+    $("#bl").textContent = blocked ? "🚫 Block user" : "✅ Unblock user";
+    toast(blocked ? "User unblocked" : "User blocked");
+  } catch (err) { toast("Could not update block list: " + err.message); }
+};
 $("#more").onclick = (e) => {
   e.stopPropagation();
   $("#hm").classList.toggle("open");
@@ -2658,7 +2739,7 @@ function gameSnake(b) {
     cx.fillRect(0, 0, 300, 300);
     cx.fillStyle = "#ef4444";
     cx.fillRect(food[0] * S + 2, food[1] * S + 2, S - 4, S - 4);
-    cx.fillStyle = "#25d366";
+    cx.fillStyle = "#a78bfa";
     sn.forEach((s) => cx.fillRect(s[0] * S + 1, s[1] * S + 1, S - 2, S - 2));
   }, 130);
   gOff = () => {
